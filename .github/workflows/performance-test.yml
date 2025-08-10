@@ -1,0 +1,100 @@
+name: Performance Test
+
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: '0 3 * * 1'  # Every Monday at 3 AM
+  workflow_dispatch:
+
+jobs:
+  performance-test:
+    name: Performance Test
+    runs-on: ubuntu-latest
+    
+    services:
+      mariadb:
+        image: mariadb:11.3
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: cardb
+          MYSQL_USER: caruser
+          MYSQL_PASSWORD: carpass
+        ports:
+          - 3306:3306
+        options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Cache Maven dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: |
+          ${{ runner.os }}-maven-
+
+    - name: Build application
+      run: ./mvnw clean package -DskipTests
+
+    - name: Start application
+      run: |
+        java -jar target/*.jar &
+        echo $! > app.pid
+        sleep 30
+      env:
+        SPRING_DATASOURCE_URL: jdbc:mariadb://localhost:3306/cardb
+        SPRING_DATASOURCE_USERNAME: caruser
+        SPRING_DATASOURCE_PASSWORD: carpass
+
+    - name: Wait for application to be ready
+      run: |
+        timeout 60 bash -c 'until curl -f http://localhost:8080/actuator/health; do sleep 2; done'
+
+    - name: Install Apache Bench
+      run: sudo apt-get update && sudo apt-get install -y apache2-utils
+
+    - name: Run performance tests
+      run: |
+        # Register test user for authentication
+        curl -X POST http://localhost:8080/auth/register \
+          -H "Content-Type: application/json" \
+          -d '{"username":"perfuser","password":"perfpass","roles":"USER"}'
+        
+        # Login and get JWT token
+        TOKEN=$(curl -X POST http://localhost:8080/auth/login \
+          -H "Content-Type: application/json" \
+          -d '{"username":"perfuser","password":"perfpass"}' | \
+          jq -r '.token')
+        
+        # Test API endpoints
+        echo "Testing GET /api/cars"
+        ab -n 1000 -c 10 -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/cars
+        
+        echo "Testing GET /api/owners"
+        ab -n 1000 -c 10 -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/owners
+
+    - name: Stop application
+      run: |
+        if [ -f app.pid ]; then
+          kill $(cat app.pid)
+        fi
+
+    - name: Generate performance report
+      run: |
+        echo "Performance test completed at $(date)" > performance-report.txt
+        echo "See Apache Bench results above for detailed metrics" >> performance-report.txt
+
+    - name: Upload performance results
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-results
+        path: performance-report.txt

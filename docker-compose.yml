@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  app:
+    image: ghcr.io/max2535/demo:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:mariadb://db:3306/cardb
+      - SPRING_DATASOURCE_USERNAME=caruser
+      - SPRING_DATASOURCE_PASSWORD=carpass
+      - JWT_SECRET=your-256-bit-secret-key-here-change-this-in-production
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  db:
+    image: mariadb:11.3
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=cardb
+      - MYSQL_USER=caruser
+      - MYSQL_PASSWORD=carpass
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./src/main/resources/data.sql:/docker-entrypoint-initdb.d/data.sql
+    ports:
+      - "3306:3306"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  db_data:
