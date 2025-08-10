@@ -211,16 +211,14 @@ jobs:
           # Copy manifests from application repo working copy (already checked out above in main workspace root)
           cp -r ../k8s/* production/ 2>/dev/null || true
           cp -r ../k8s/* staging/ 2>/dev/null || true
-          cat > README.md << 'EOF'
-          # GitOps Configuration Repository
-
-          This repository contains Kubernetes manifests for the application.
-          Managed by GitHub Actions and deployed via Argo CD.
-
-          ## Environments
-          - Production
-          - Staging
-          EOF
+          printf '%s\n' "# GitOps Configuration Repository" \
+         "" \
+         "This repository contains Kubernetes manifests for the application." \
+         "Managed by GitHub Actions and deployed via Argo CD." \
+         "" \
+         "## Environments" \
+         "- Production" \
+         "- Staging" > README.md
           git add . || true
           git commit -m "Initial commit: bootstrap structure" || true
           git branch -M main || true
@@ -229,6 +227,10 @@ jobs:
     # Update the image tag in the appropriate environment's manifests
     - name: Update image tag in manifests
       run: |
+        if [ ! -d "config-repo" ]; then
+          echo "config-repo missing; skipping image tag update"
+          exit 0
+        fi
         ENV_DIR="${{ steps.env.outputs.env }}"
         cd config-repo
         
