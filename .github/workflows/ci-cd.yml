@@ -174,10 +174,10 @@ jobs:
       uses: actions/checkout@v4
       with:
         repository: ${{ github.repository_owner }}/${{ env.CONFIG_REPO }}
-  token: ${{ secrets.GITHUB_TOKEN }}
-  path: config-repo
+        token: ${{ secrets.GITHUB_TOKEN }}
+        path: config-repo
       continue-on-error: true
-        
+
     # เมื่อ checkout ไม่สำเร็จ (repo อาจไม่มี) ให้สร้าง manifests ที่จำเป็น
     - name: Setup config repo structure if not exists
       if: ${{ steps.env.outputs.env == 'production' }}
