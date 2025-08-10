@@ -115,10 +115,33 @@ jobs:
       uses: docker/login-action@v3
       with:
         registry: ${{ env.DOCKER_REGISTRY }}
-        username: ${{ github.actor }}
+        # Use repository owner (safer for org or user owned packages)
+        username: ${{ github.repository_owner }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
   # Using default GITHUB_TOKEN for GHCR push (no PAT fallback configured)
+
+  # (Optional) PAT login: Uncomment and add repository/organization secret GHCR_PAT with write:packages if GITHUB_TOKEN continues to 403
+  # - name: (Optional) Log in with PAT (GHCR_PAT) for package write
+  #   if: ${{ secrets.GHCR_PAT != '' }}
+  #   env:
+  #     REGISTRY: ${{ env.DOCKER_REGISTRY }}
+  #   run: echo "${{ secrets.GHCR_PAT }}" | docker login "$REGISTRY" -u "${{ github.repository_owner }}" --password-stdin
+
+    - name: Debug GHCR auth context
+      run: |
+        echo "Actor: ${{ github.actor }}"
+        echo "Owner: ${{ github.repository_owner }}"
+        echo "IMAGE_NAME (env): ${{ env.IMAGE_NAME }}"
+        echo "Repository: ${{ github.repository }}"
+        echo "Listing docker config auth entries:" || true
+        cat ~/.docker/config.json || true
+        echo "Attempt HEAD on existing manifest list (ignore errors):" || true
+        curl -I https://ghcr.io/v2/${{ env.IMAGE_NAME }}/manifests/latest || true
+        echo "Token scope test (push scope)" || true
+        curl -s -o /dev/null -w 'HTTP %{http_code}\n' \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          "https://ghcr.io/v2/token?service=ghcr.io&scope=repository:${{ env.IMAGE_NAME }}:push" || true
 
     - name: Generate image tag
       id: image_tag
