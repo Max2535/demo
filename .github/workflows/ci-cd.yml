@@ -121,13 +121,6 @@ jobs:
 
   # Using default GITHUB_TOKEN for GHCR push (no PAT fallback configured)
 
-  # (Optional) PAT login: Uncomment and add repository/organization secret GHCR_PAT with write:packages if GITHUB_TOKEN continues to 403
-  # - name: (Optional) Log in with PAT (GHCR_PAT) for package write
-  #   if: ${{ secrets.GHCR_PAT != '' }}
-  #   env:
-  #     REGISTRY: ${{ env.DOCKER_REGISTRY }}
-  #   run: echo "${{ secrets.GHCR_PAT }}" | docker login "$REGISTRY" -u "${{ github.repository_owner }}" --password-stdin
-
     - name: Debug GHCR auth context
       run: |
         echo "Actor: ${{ github.actor }}"
