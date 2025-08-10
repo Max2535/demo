@@ -11,7 +11,7 @@ env:
   JAVA_VERSION: '17'
   MAVEN_OPTS: '-Xmx1024m'
   DOCKER_REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: ${{ format('{0}', github.repository) }}
   IMAGE_TAG: ${{ github.sha }}
   CONFIG_REPO: ${{ github.repository }}-config # สำหรับเก็บ K8s manifests แยก (สมมติว่าเป็น repo ที่ใช้กับ Argo CD)
 
@@ -93,6 +93,9 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - name: Set IMAGE_NAME to lowercase
+      run: echo "IMAGE_NAME=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
     - name: Download build artifact
       uses: actions/download-artifact@v4
