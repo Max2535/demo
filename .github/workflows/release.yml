@@ -27,6 +27,9 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Ensure mvnw is executable
+      run: chmod +x ./mvnw
+
     - name: Set up JDK ${{ env.JAVA_VERSION }}
       uses: actions/setup-java@v4
       with:

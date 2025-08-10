@@ -28,6 +28,9 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Ensure mvnw is executable
+      run: chmod +x ./mvnw
+
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
