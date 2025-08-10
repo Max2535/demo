@@ -266,7 +266,20 @@ jobs:
         git config user.name "GitHub Actions"
         git config user.email "github-actions@github.com"
         git commit -m "Update image to ${{ needs.build-and-push.outputs.image_tag }} for ${{ steps.env.outputs.env }} environment [skip ci]" || echo "No changes to commit"
-        git push origin main || git push --set-upstream origin main
+            CURRENT_BRANCH="$(git symbolic-ref --short HEAD || echo '')"
+            echo "Current branch: $CURRENT_BRANCH"
+            # Normalize branch to main
+            if [ "$CURRENT_BRANCH" != "main" ]; then
+              echo "Renaming branch $CURRENT_BRANCH -> main"
+              git branch -M main || true
+            fi
+            echo "Local branches:"; git branch --list
+            echo "Remote refs before push (may fail if no auth):"; git ls-remote --heads origin || true
+            # Push with multiple fallback strategies
+            git push origin main 2>/dev/null || \
+            git push -u origin main 2>/dev/null || \
+            git push origin HEAD:main 2>/dev/null || \
+            { echo "Primary push attempts failed"; exit 1; }
 
   # Job 4: Notify
   notify:
