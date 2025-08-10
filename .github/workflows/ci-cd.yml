@@ -1,76 +1,293 @@
-name: CI/CD (Build & Push to GHCR)
+name: GitOps Pipeline
 
 on:
   push:
-    branches: [ main, master ]
-    tags: [ 'v*.*.*' ]
+    branches: [ main, develop ]
   pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 permissions:
-  contents: read
-  packages: write        # สำหรับ push ไป GHCR
-  id-token: write        # สำหรับ provenance/attestations
-  attestations: write
+  contents: write       # เพิ่มเป็น write เพื่อให้สามารถ push ไปยัง repository ได้
+  packages: write       # needed to push to GHCR
+  security-events: write # needed to upload SARIF (code scanning)
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.event.repository.name }}
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  JAVA_VERSION: '17'
+  MAVEN_OPTS: '-Xmx1024m'
+  DOCKER_REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ format('{0}', github.repository) }}
+  IMAGE_TAG: ${{ github.sha }}
+  CONFIG_REPO: ${{ github.repository }}-config # สำหรับเก็บ K8s manifests แยก (สมมติว่าเป็น repo ที่ใช้กับ Argo CD)
 
 jobs:
-  build-and-push:
+  # Job 1: Continuous Integration
+  ci:
+    name: CI - Build and Test
     runs-on: ubuntu-latest
+    
+    services:
+      mariadb:
+        image: mariadb:11.3
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: cardb
+          MYSQL_USER: caruser
+          MYSQL_PASSWORD: carpass
+        ports:
+          - 3306:3306
+        options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=10s --health-timeout=5s --health-retries=3
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
-      # --- Build Java (Maven) ---
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: maven
+    - name: Ensure mvnw is executable
+      run: chmod +x ./mvnw
 
-      - name: Build JAR
-        run: mvn -B -DskipTests package
+    - name: Set up JDK ${{ env.JAVA_VERSION }}
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: 'temurin'
+        cache: maven
 
-      # --- Docker / GHCR ---
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+    - name: Wait for MariaDB
+      run: |
+        while ! mysqladmin ping -h"127.0.0.1" -P3306 --silent; do
+          sleep 1
+        done
+        
+    - name: Run Checkstyle
+      run: ./mvnw checkstyle:checkstyle
+      continue-on-error: true
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Run Unit Tests
+      run: ./mvnw test
+      env:
+        SPRING_DATASOURCE_URL: jdbc:mariadb://localhost:3306/cardb
+        SPRING_DATASOURCE_USERNAME: caruser
+        SPRING_DATASOURCE_PASSWORD: carpass
 
-      - name: Extract Docker metadata (tags, labels)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha,prefix=sha-
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=tag
-          labels: |
-            org.opencontainers.image.source=${{ github.repository }}
+    - name: Generate Test Reports
+      run: ./mvnw jacoco:report
+      if: success()
 
-      - name: Build & Push image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: true
-          # ถ้าต้องการ multi-arch ให้เปิดบรรทัดนี้
-          # platforms: linux/amd64,linux/arm64
+    - name: Build Application
+      run: ./mvnw package -DskipTests
+      if: success()
+
+    - name: Upload Build Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: application-jar
+        path: target/*.jar
+        retention-days: 1
+
+  # Job 2: Build and Push Docker Image
+  build-and-push:
+    name: CD - Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: ci
+    if: github.event_name != 'pull_request'
+    outputs:
+      image_tag: ${{ steps.image_tag.outputs.tag }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set IMAGE_NAME to lowercase
+      run: echo "IMAGE_NAME=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+    - name: Download build artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: application-jar
+        path: target/
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.DOCKER_REGISTRY }}
+        # Use repository owner (safer for org or user owned packages)
+        username: ${{ github.repository_owner }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+  # Using default GITHUB_TOKEN for GHCR push (no PAT fallback configured)
+
+    - name: Debug GHCR auth context
+      run: |
+        echo "Actor: ${{ github.actor }}"
+        echo "Owner: ${{ github.repository_owner }}"
+        echo "IMAGE_NAME (env): ${{ env.IMAGE_NAME }}"
+        echo "Repository: ${{ github.repository }}"
+        echo "Listing docker config auth entries:" || true
+        cat ~/.docker/config.json || true
+        echo "Attempt HEAD on existing manifest list (ignore errors):" || true
+        curl -I https://ghcr.io/v2/${{ env.IMAGE_NAME }}/manifests/latest || true
+        echo "Token scope test (push scope)" || true
+        curl -s -o /dev/null -w 'HTTP %{http_code}\n' \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          "https://ghcr.io/v2/token?service=ghcr.io&scope=repository:${{ env.IMAGE_NAME }}:push" || true
+
+    - name: Generate image tag
+      id: image_tag
+      run: |
+        TAG="sha-${GITHUB_SHA::7}"
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: |
+          ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image_tag.outputs.tag }}
+          ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref == 'refs/heads/main' && 'latest' || 'develop' }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # If push fails here, likely missing permissions: ensure repository Actions have write & packages enabled.
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      continue-on-error: true
+      with:
+        image-ref: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image_tag.outputs.tag }}
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  # Job 3: Update Kubernetes Manifests in Git Repository (for Argo CD)
+  update-gitops-repo:
+    name: GitOps - Update Config Repo
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    
+    steps:
+    - name: Set environment
+      id: env
+      run: |
+        if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          echo "env=production" >> $GITHUB_OUTPUT
+        else
+          echo "env=staging" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Checkout config repository
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ github.repository_owner }}/${{ env.CONFIG_REPO }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        path: config-repo
+      continue-on-error: true
+
+    # เมื่อ checkout ไม่สำเร็จ (repo อาจไม่มี) ให้สร้าง manifests ที่จำเป็น
+    - name: Setup config repo structure if not exists
+      if: ${{ steps.env.outputs.env == 'production' }}
+      run: |
+        if [ ! -d "config-repo" ]; then
+          mkdir -p config-repo
+          cd config-repo
+          git init
+          git config user.name "GitHub Actions"
+          git config user.email "github-actions@github.com"
+          mkdir -p production staging
+          
+          # Copy K8s manifests จาก app repo
+          git clone https://github.com/${{ github.repository }} temp-app
+          cp -r temp-app/k8s/* production/
+          cp -r temp-app/k8s/* staging/
+          rm -rf temp-app
+          
+          # Create a README
+          cat > README.md << EOF
+        # GitOps Configuration Repository
+        
+        This repository contains Kubernetes manifests for the ${{ github.repository }} application.
+        It is managed automatically by GitHub Actions and deployed by Argo CD.
+        
+        ## Environments
+        
+        - [Production](./production/)
+        - [Staging](./staging/)
+        EOF
+          
+          # Initial commit
+          git add .
+          git commit -m "Initial commit: Set up GitOps repository structure"
+          git branch -M main
+          git remote add origin https://github.com/${{ github.repository_owner }}/${{ env.CONFIG_REPO }}.git
+        fi
+
+    # Update the image tag in the appropriate environment's manifests
+    - name: Update image tag in manifests
+      run: |
+        ENV_DIR="${{ steps.env.outputs.env }}"
+        cd config-repo
+        
+        if [ -d "$ENV_DIR" ]; then
+          # Find all deployment files and update image tag
+          for file in $(find $ENV_DIR -name "*.yml" -o -name "*.yaml"); do
+            if grep -q "image:" "$file"; then
+              sed -i "s|image: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:.*|image: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image_tag }}|g" "$file"
+              echo "Updated image tag in $file"
+            fi
+          done
+          
+          # Update last deployed timestamp
+          DEPLOY_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          for file in $(find $ENV_DIR -name "*.yml" -o -name "*.yaml"); do
+            if grep -q "# Last deployed:" "$file"; then
+              sed -i "s|# Last deployed:.*|# Last deployed: $DEPLOY_TIME|g" "$file"
+            else
+              # Add timestamp if not present
+              sed -i "1i# Last deployed: $DEPLOY_TIME" "$file"
+            fi
+          done
+        else
+          echo "Environment directory $ENV_DIR does not exist"
+          exit 1
+        fi
+
+    # Commit and push changes to the config repo
+    - name: Commit and push changes to config repo
+      run: |
+        cd config-repo
+        git add .
+        git config user.name "GitHub Actions"
+        git config user.email "github-actions@github.com"
+        git commit -m "Update image to ${{ needs.build-and-push.outputs.image_tag }} for ${{ steps.env.outputs.env }} environment [skip ci]" || echo "No changes to commit"
+        git push origin main || git push --set-upstream origin main
+
+  # Job 4: Notify
+  notify:
+    name: Send Notification
+    runs-on: ubuntu-latest
+    needs: update-gitops-repo
+    if: always()
+    
+    steps:
+    - name: Notify success
+      if: ${{ needs.update-gitops-repo.result == 'success' }}
+      run: |
+        echo "✅ GitOps update successful! Argo CD will now detect changes and sync automatically."
+        # Add notification logic here (Slack, Teams, Email, etc.)
+
+    - name: Notify failure
+      if: ${{ needs.update-gitops-repo.result == 'failure' }}
+      run: |
+        echo "❌ GitOps update failed! Check the logs for more details."
+        # Add notification logic here (Slack, Teams, Email, etc.)
