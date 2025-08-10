@@ -166,11 +166,29 @@ jobs:
           echo "env=staging" >> $GITHUB_OUTPUT
         fi
 
+    - name: Detect PAT availability
+      id: detect_pat
+      shell: bash
+      run: |
+        if [ -n "${{ secrets.PAT_TOKEN }}" ]; then
+          echo "have_pat=true" >> $GITHUB_OUTPUT
+        else
+          echo "have_pat=false" >> $GITHUB_OUTPUT
+        fi
+        echo "PAT present: $(grep have_pat $GITHUB_OUTPUT || true)"
+
+    - name: Abort GitOps update (no PAT_TOKEN secret)
+      if: steps.detect_pat.outputs.have_pat != 'true'
+      run: |
+        echo "Skipping GitOps repo update because PAT_TOKEN secret is not defined."
+        echo "Define PAT_TOKEN with repo & write:packages scopes to enable GitOps manifest updates."
+        exit 0
+
     - name: Checkout config repository
       uses: actions/checkout@v4
       with:
         repository: ${{ github.repository_owner }}/${{ env.CONFIG_REPO }}
-        token: ${{ secrets.PAT_TOKEN }}  # Personal Access Token with repo access
+        token: ${{ secrets.PAT_TOKEN }}  # Requires PAT_TOKEN when updating external config repo
         path: config-repo
       continue-on-error: true
         
