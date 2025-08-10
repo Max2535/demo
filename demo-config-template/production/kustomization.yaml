@@ -1,0 +1,42 @@
+# Kustomization for Production Environment
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: production
+
+resources:
+- deployment.yml
+- mariadb.yml
+
+images:
+- name: springboot-demo
+  newName: yourregistry.com/demo-app
+  newTag: production
+
+configMapGenerator:
+- name: app-config
+  literals:
+  - SPRING_PROFILES_ACTIVE=production
+  - DB_HOST=mariadb-service
+  - DB_PORT=3306
+  - DB_NAME=cardb
+
+patchesStrategicMerge:
+- |-
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: springboot-demo
+  spec:
+    template:
+      spec:
+        containers:
+        - name: springboot-demo
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"

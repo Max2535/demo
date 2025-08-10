@@ -1,4 +1,4 @@
-# Kubernetes Deployment Configuration
+# Kubernetes Deployment Configuration - Staging Environment
 # Last deployed: 2025-08-10T00:00:00Z
 
 apiVersion: apps/v1
@@ -8,8 +8,9 @@ metadata:
   labels:
     app: demo-app
     version: v1
+    env: staging
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: demo-app
@@ -18,15 +19,16 @@ spec:
       labels:
         app: demo-app
         version: v1
+        env: staging
     spec:
       containers:
       - name: demo-app
-        image: ghcr.io/max2535/demo:latest
+        image: ghcr.io/max2535/demo:develop
         ports:
         - containerPort: 8080
         env:
         - name: SPRING_PROFILES_ACTIVE
-          value: "production"
+          value: "staging"
         - name: SPRING_DATASOURCE_URL
           valueFrom:
             secretKeyRef:
@@ -49,26 +51,26 @@ spec:
               key: jwt-secret
         resources:
           requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
             memory: "256Mi"
             cpu: "250m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
         livenessProbe:
           httpGet:
             path: /actuator/health/liveness
             port: 8080
-          initialDelaySeconds: 60
-          periodSeconds: 30
+          initialDelaySeconds: 30
+          periodSeconds: 20
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
             port: 8080
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
           failureThreshold: 3
       imagePullSecrets:
       - name: ghcr-secret
@@ -80,6 +82,7 @@ metadata:
   name: demo-app-service
   labels:
     app: demo-app
+    env: staging
 spec:
   selector:
     app: demo-app
@@ -96,16 +99,16 @@ metadata:
   name: demo-app-ingress
   annotations:
     kubernetes.io/ingress.class: nginx
-    cert-manager.io/cluster-issuer: letsencrypt-prod
+    cert-manager.io/cluster-issuer: letsencrypt-staging
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
 spec:
   tls:
   - hosts:
-    - your-domain.com
-    secretName: demo-app-tls
+    - staging.your-domain.com
+    secretName: demo-app-staging-tls
   rules:
-  - host: your-domain.com
+  - host: staging.your-domain.com
     http:
       paths:
       - path: /
@@ -121,12 +124,14 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: demo-secrets
+  labels:
+    env: staging
 type: Opaque
 stringData:
-  database-url: jdbc:mariadb://mariadb-service:3306/cardb
+  database-url: jdbc:mariadb://mariadb-service:3306/cardb_staging
   database-username: caruser
-  database-password: change-this-password
-  jwt-secret: change-this-to-a-256-bit-secret-key
+  database-password: staging-password
+  jwt-secret: staging-jwt-secret-key-for-development
 
 ---
 apiVersion: v1

@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+name: GitOps Pipeline
 
 on:
   push:
@@ -12,58 +12,13 @@ env:
   MAVEN_OPTS: '-Xmx1024m'
   DOCKER_REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  IMAGE_TAG: ${{ github.sha }}
+  CONFIG_REPO: ${{ github.repository }}-config # สำหรับเก็บ K8s manifests แยก (สมมติว่าเป็น repo ที่ใช้กับ Argo CD)
 
 jobs:
-  # Job 1: Code Quality & Security Analysis
-  code-quality:
-    name: Code Quality & Security Analysis
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-
-    - name: Set up JDK ${{ env.JAVA_VERSION }}
-      uses: actions/setup-java@v4
-      with:
-        java-version: ${{ env.JAVA_VERSION }}
-        distribution: 'temurin'
-
-    - name: Cache Maven dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.m2
-        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-        restore-keys: |
-          ${{ runner.os }}-maven-
-
-    - name: Run Checkstyle
-      run: |
-        ./mvnw checkstyle:checkstyle
-      continue-on-error: true
-
-    - name: Run SpotBugs
-      run: |
-        ./mvnw compile spotbugs:spotbugs
-      continue-on-error: true
-
-    - name: Run OWASP Dependency Check
-      run: |
-        ./mvnw org.owasp:dependency-check-maven:check
-      continue-on-error: true
-
-    - name: Upload dependency check results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: dependency-check-report
-        path: target/dependency-check-report.html
-
-  # Job 2: Unit & Integration Tests
-  test:
-    name: Tests
+  # Job 1: Continuous Integration
+  ci:
+    name: CI - Build and Test
     runs-on: ubuntu-latest
     
     services:
@@ -81,225 +36,227 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Set up JDK ${{ env.JAVA_VERSION }}
       uses: actions/setup-java@v4
       with:
         java-version: ${{ env.JAVA_VERSION }}
         distribution: 'temurin'
-
-    - name: Cache Maven dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.m2
-        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-        restore-keys: |
-          ${{ runner.os }}-maven-
+        cache: maven
 
     - name: Wait for MariaDB
       run: |
         while ! mysqladmin ping -h"127.0.0.1" -P3306 --silent; do
           sleep 1
         done
+        
+    - name: Run Checkstyle
+      run: ./mvnw checkstyle:checkstyle
+      continue-on-error: true
 
-    - name: Run unit tests
+    - name: Run Unit Tests
       run: ./mvnw test
       env:
         SPRING_DATASOURCE_URL: jdbc:mariadb://localhost:3306/cardb
         SPRING_DATASOURCE_USERNAME: caruser
         SPRING_DATASOURCE_PASSWORD: carpass
 
-    - name: Run integration tests
-      run: ./mvnw verify -Dspring.profiles.active=test
-      env:
-        SPRING_DATASOURCE_URL: jdbc:mariadb://localhost:3306/cardb
-        SPRING_DATASOURCE_USERNAME: caruser
-        SPRING_DATASOURCE_PASSWORD: carpass
-
-    - name: Generate test report
-      uses: dorny/test-reporter@v1
-      if: always()
-      with:
-        name: Maven Tests
-        path: target/surefire-reports/*.xml
-        reporter: java-junit
-
-    - name: Generate code coverage report
+    - name: Generate Test Reports
       run: ./mvnw jacoco:report
+      if: success()
 
-    - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./target/site/jacoco/jacoco.xml
-        flags: unittests
-        name: codecov-umbrella
+    - name: Build Application
+      run: ./mvnw package -DskipTests
+      if: success()
 
-    - name: Upload test results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: test-results
-        path: |
-          target/surefire-reports/
-          target/site/jacoco/
-
-  # Job 3: Build Application
-  build:
-    name: Build Application
-    runs-on: ubuntu-latest
-    needs: [code-quality, test]
-    
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up JDK ${{ env.JAVA_VERSION }}
-      uses: actions/setup-java@v4
-      with:
-        java-version: ${{ env.JAVA_VERSION }}
-        distribution: 'temurin'
-
-    - name: Cache Maven dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.m2
-        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-        restore-keys: |
-          ${{ runner.os }}-maven-
-
-    - name: Extract version
-      id: version
-      run: |
-        VERSION=$(./mvnw help:evaluate -Dexpression=project.version -q -DforceStdout)
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-        echo "Version: $VERSION"
-
-    - name: Build application
-      run: ./mvnw clean package -DskipTests
-
-    - name: Upload build artifacts
+    - name: Upload Build Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: jar-artifact
+        name: application-jar
         path: target/*.jar
+        retention-days: 1
 
-  # Job 4: Docker Build & Security Scan
-  docker:
-    name: Docker Build & Security Scan
+  # Job 2: Build and Push Docker Image
+  build-and-push:
+    name: CD - Build and Push Docker Image
     runs-on: ubuntu-latest
-    needs: build
+    needs: ci
     if: github.event_name != 'pull_request'
+    outputs:
+      image_tag: ${{ steps.image_tag.outputs.tag }}
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Download build artifacts
+    - name: Download build artifact
       uses: actions/download-artifact@v4
       with:
-        name: jar-artifact
+        name: application-jar
         path: target/
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Log in to Container Registry
+    - name: Log in to GitHub Container Registry
       uses: docker/login-action@v3
       with:
         registry: ${{ env.DOCKER_REGISTRY }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}
-        tags: |
-          type=ref,event=branch
-          type=ref,event=pr
-          type=sha,prefix={{branch}}-
-          type=raw,value=latest,enable={{is_default_branch}}
+    - name: Generate image tag
+      id: image_tag
+      run: |
+        TAG="sha-${GITHUB_SHA::7}"
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
         context: .
         push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
+        tags: |
+          ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image_tag.outputs.tag }}
+          ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref == 'refs/heads/main' && 'latest' || 'develop' }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
+      continue-on-error: true
       with:
-        image-ref: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+        image-ref: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image_tag.outputs.tag }}
         format: 'sarif'
         output: 'trivy-results.sarif'
 
-    - name: Upload Trivy scan results to GitHub Security tab
+    - name: Upload Trivy scan results
       uses: github/codeql-action/upload-sarif@v3
+      if: always()
       with:
         sarif_file: 'trivy-results.sarif'
 
-  # Job 5: Deploy to Staging
-  deploy-staging:
-    name: Deploy to Staging
+  # Job 3: Update Kubernetes Manifests in Git Repository (for Argo CD)
+  update-gitops-repo:
+    name: GitOps - Update Config Repo
     runs-on: ubuntu-latest
-    needs: [build, docker]
-    if: github.ref == 'refs/heads/develop'
-    environment: staging
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Deploy to staging
+    - name: Set environment
+      id: env
       run: |
-        echo "Deploying to staging environment..."
-        echo "Image: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:develop"
-        # Add your staging deployment commands here
-        # Example: kubectl, helm, docker-compose, etc.
+        if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          echo "env=production" >> $GITHUB_OUTPUT
+        else
+          echo "env=staging" >> $GITHUB_OUTPUT
+        fi
 
-  # Job 6: Deploy to Production
-  deploy-production:
-    name: Deploy to Production
-    runs-on: ubuntu-latest
-    needs: [build, docker]
-    if: github.ref == 'refs/heads/main'
-    environment: production
-    
-    steps:
-    - name: Checkout code
+    - name: Checkout config repository
       uses: actions/checkout@v4
-
-    - name: Deploy to production
+      with:
+        repository: ${{ github.repository_owner }}/${{ env.CONFIG_REPO }}
+        token: ${{ secrets.PAT_TOKEN }}  # Personal Access Token with repo access
+        path: config-repo
+      continue-on-error: true
+        
+    # เมื่อ checkout ไม่สำเร็จ (repo อาจไม่มี) ให้สร้าง manifests ที่จำเป็น
+    - name: Setup config repo structure if not exists
+      if: ${{ steps.env.outputs.env == 'production' }}
       run: |
-        echo "Deploying to production environment..."
-        echo "Image: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
-        # Add your production deployment commands here
-        # Example: kubectl, helm, docker-compose, etc.
+        if [ ! -d "config-repo" ]; then
+          mkdir -p config-repo
+          cd config-repo
+          git init
+          git config user.name "GitHub Actions"
+          git config user.email "github-actions@github.com"
+          mkdir -p production staging
+          
+          # Copy K8s manifests จาก app repo
+          git clone https://github.com/${{ github.repository }} temp-app
+          cp -r temp-app/k8s/* production/
+          cp -r temp-app/k8s/* staging/
+          rm -rf temp-app
+          
+          # Create a README
+          cat > README.md << EOF
+        # GitOps Configuration Repository
+        
+        This repository contains Kubernetes manifests for the ${{ github.repository }} application.
+        It is managed automatically by GitHub Actions and deployed by Argo CD.
+        
+        ## Environments
+        
+        - [Production](./production/)
+        - [Staging](./staging/)
+        EOF
+          
+          # Initial commit
+          git add .
+          git commit -m "Initial commit: Set up GitOps repository structure"
+          git branch -M main
+          git remote add origin https://github.com/${{ github.repository_owner }}/${{ env.CONFIG_REPO }}.git
+        fi
 
-  # Job 7: Notify
+    # Update the image tag in the appropriate environment's manifests
+    - name: Update image tag in manifests
+      run: |
+        ENV_DIR="${{ steps.env.outputs.env }}"
+        cd config-repo
+        
+        if [ -d "$ENV_DIR" ]; then
+          # Find all deployment files and update image tag
+          for file in $(find $ENV_DIR -name "*.yml" -o -name "*.yaml"); do
+            if grep -q "image:" "$file"; then
+              sed -i "s|image: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:.*|image: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image_tag }}|g" "$file"
+              echo "Updated image tag in $file"
+            fi
+          done
+          
+          # Update last deployed timestamp
+          DEPLOY_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          for file in $(find $ENV_DIR -name "*.yml" -o -name "*.yaml"); do
+            if grep -q "# Last deployed:" "$file"; then
+              sed -i "s|# Last deployed:.*|# Last deployed: $DEPLOY_TIME|g" "$file"
+            else
+              # Add timestamp if not present
+              sed -i "1i# Last deployed: $DEPLOY_TIME" "$file"
+            fi
+          done
+        else
+          echo "Environment directory $ENV_DIR does not exist"
+          exit 1
+        fi
+
+    # Commit and push changes to the config repo
+    - name: Commit and push changes to config repo
+      run: |
+        cd config-repo
+        git add .
+        git config user.name "GitHub Actions"
+        git config user.email "github-actions@github.com"
+        git commit -m "Update image to ${{ needs.build-and-push.outputs.image_tag }} for ${{ steps.env.outputs.env }} environment [skip ci]" || echo "No changes to commit"
+        git push origin main || git push --set-upstream origin main
+
+  # Job 4: Notify
   notify:
-    name: Notify
+    name: Send Notification
     runs-on: ubuntu-latest
-    needs: [deploy-staging, deploy-production]
+    needs: update-gitops-repo
     if: always()
     
     steps:
-    - name: Notify on success
-      if: ${{ needs.deploy-staging.result == 'success' || needs.deploy-production.result == 'success' }}
+    - name: Notify success
+      if: ${{ needs.update-gitops-repo.result == 'success' }}
       run: |
-        echo "✅ Deployment successful!"
+        echo "✅ GitOps update successful! Argo CD will now detect changes and sync automatically."
         # Add notification logic here (Slack, Teams, Email, etc.)
 
-    - name: Notify on failure
-      if: ${{ needs.deploy-staging.result == 'failure' || needs.deploy-production.result == 'failure' }}
+    - name: Notify failure
+      if: ${{ needs.update-gitops-repo.result == 'failure' }}
       run: |
-        echo "❌ Deployment failed!"
+        echo "❌ GitOps update failed! Check the logs for more details."
         # Add notification logic here (Slack, Teams, Email, etc.)

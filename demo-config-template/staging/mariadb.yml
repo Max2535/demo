@@ -1,0 +1,151 @@
+# MariaDB Database Deployment - Staging Environment
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mariadb
+  labels:
+    app: mariadb
+    env: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mariadb
+  template:
+    metadata:
+      labels:
+        app: mariadb
+        env: staging
+    spec:
+      containers:
+      - name: mariadb
+        image: mariadb:11.3
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mariadb-secrets
+              key: root-password
+        - name: MYSQL_DATABASE
+          value: cardb
+        - name: MYSQL_USER
+          value: caruser
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mariadb-secrets
+              key: user-password
+        ports:
+        - containerPort: 3306
+        volumeMounts:
+        - name: mariadb-data
+          mountPath: /var/lib/mysql
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
+        livenessProbe:
+          exec:
+            command:
+            - mysqladmin
+            - ping
+            - -h
+            - localhost
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - mysqladmin
+            - ping
+            - -h
+            - localhost
+          initialDelaySeconds: 5
+          periodSeconds: 2
+          timeoutSeconds: 1
+          failureThreshold: 3
+      volumes:
+      - name: mariadb-data
+        persistentVolumeClaim:
+          claimName: mariadb-pvc
+      - name: init-scripts
+        configMap:
+          name: mariadb-init-scripts
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb-service
+  labels:
+    app: mariadb
+    env: staging
+spec:
+  selector:
+    app: mariadb
+  ports:
+  - protocol: TCP
+    port: 3306
+    targetPort: 3306
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mariadb-pvc
+  labels:
+    env: staging
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mariadb-secrets
+  labels:
+    env: staging
+type: Opaque
+stringData:
+  root-password: staging-root-password
+  user-password: staging-user-password
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mariadb-init-scripts
+  labels:
+    env: staging
+data:
+  init.sql: |
+    -- Initial data for staging testing
+    INSERT INTO owners (first_name, last_name) VALUES 
+    ('Test', 'User'),
+    ('Demo', 'Account'),
+    ('Staging', 'Tester');
+
+    INSERT INTO cars (brand, model, year, owner_id) VALUES 
+    ('Toyota', 'Test-Car', 2022, 1),
+    ('Honda', 'Demo-Car', 2021, 2),
+    ('Ford', 'Staging-Car', 2023, 3);
+
+    -- Create admin user with known password for staging
+    INSERT INTO users (username, password, roles) VALUES 
+    ('admin', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.', 'ADMIN');
+    
+    -- Password is 'password' - for staging testing only

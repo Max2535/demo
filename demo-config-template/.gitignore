@@ -1,0 +1,35 @@
+# .gitignore file for Kubernetes manifests
+
+# Local .terraform directories
+**/.terraform/*
+
+# .tfstate files
+*.tfstate
+*.tfstate.*
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Secrets - never commit these to git!
+*secrets*.yaml
+*secrets*.yml
+*secret*.yaml
+*secret*.yml
+
+# Local development files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Generated Kubernetes config files
+*kubeconfig*
+
+# Temporary override files
+*override.yaml
+*override.yml
+
+# Lock files
+*.lock

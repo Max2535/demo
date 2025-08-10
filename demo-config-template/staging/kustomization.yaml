@@ -1,0 +1,42 @@
+# Kustomization for Staging Environment
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: staging
+
+resources:
+- deployment.yml
+- mariadb.yml
+
+images:
+- name: springboot-demo
+  newName: yourregistry.com/demo-app
+  newTag: staging
+
+configMapGenerator:
+- name: app-config
+  literals:
+  - SPRING_PROFILES_ACTIVE=staging
+  - DB_HOST=mariadb-service
+  - DB_PORT=3306
+  - DB_NAME=cardb
+
+patchesStrategicMerge:
+- |-
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: springboot-demo
+  spec:
+    template:
+      spec:
+        containers:
+        - name: springboot-demo
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
