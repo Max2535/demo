@@ -18,7 +18,8 @@ env:
   DOCKER_REGISTRY: ghcr.io
   IMAGE_NAME: ${{ format('{0}', github.repository) }}
   IMAGE_TAG: ${{ github.sha }}
-  CONFIG_REPO: ${{ github.repository }}-config # สำหรับเก็บ K8s manifests แยก (สมมติว่าเป็น repo ที่ใช้กับ Argo CD)
+  # Name (not full path) of the separate GitOps repo (must exist beforehand unless you add PAT + creation logic)
+  CONFIG_REPO_NAME: ${{ github.event.repository.name }}-config
 
 jobs:
   # Job 1: Continuous Integration
@@ -185,51 +186,44 @@ jobs:
         else
           echo "env=staging" >> $GITHUB_OUTPUT
         fi
-
-    - name: Checkout config repository
+    - name: Checkout config repository (expected existing)
       uses: actions/checkout@v4
       with:
-        repository: ${{ github.repository_owner }}/${{ env.CONFIG_REPO }}
+        repository: ${{ github.repository_owner }}/${{ env.CONFIG_REPO_NAME }}
         token: ${{ secrets.GITHUB_TOKEN }}
         path: config-repo
       continue-on-error: true
 
-    # เมื่อ checkout ไม่สำเร็จ (repo อาจไม่มี) ให้สร้าง manifests ที่จำเป็น
-    - name: Setup config repo structure if not exists
+    # If repo doesn't exist we skip instead of failing hard (create manually: ${OWNER}/${repo}-config)
+    - name: Setup config repo structure if not exists (local init only)
       if: ${{ steps.env.outputs.env == 'production' }}
       run: |
         if [ ! -d "config-repo" ]; then
-          mkdir -p config-repo
-          cd config-repo
+          echo "config-repo directory not present (checkout failed). Create repo '${{ env.CONFIG_REPO_NAME }}' first or add PAT for creation. Skipping structure setup."
+          exit 0
+        fi
+        cd config-repo
+        if [ ! -d .git ]; then
           git init
           git config user.name "GitHub Actions"
           git config user.email "github-actions@github.com"
           mkdir -p production staging
-          
-          # Copy K8s manifests จาก app repo
-          git clone https://github.com/${{ github.repository }} temp-app
-          cp -r temp-app/k8s/* production/
-          cp -r temp-app/k8s/* staging/
-          rm -rf temp-app
-          
-          # Create a README
-          cat > README.md << EOF
-        # GitOps Configuration Repository
-        
-        This repository contains Kubernetes manifests for the ${{ github.repository }} application.
-        It is managed automatically by GitHub Actions and deployed by Argo CD.
-        
-        ## Environments
-        
-        - [Production](./production/)
-        - [Staging](./staging/)
-        EOF
-          
-          # Initial commit
-          git add .
-          git commit -m "Initial commit: Set up GitOps repository structure"
-          git branch -M main
-          git remote add origin https://github.com/${{ github.repository_owner }}/${{ env.CONFIG_REPO }}.git
+          # Copy manifests from application repo working copy (already checked out above in main workspace root)
+          cp -r ../k8s/* production/ 2>/dev/null || true
+          cp -r ../k8s/* staging/ 2>/dev/null || true
+          cat > README.md << 'EOF'
+          # GitOps Configuration Repository
+
+          This repository contains Kubernetes manifests for the application.
+          Managed by GitHub Actions and deployed via Argo CD.
+
+          ## Environments
+          - Production
+          - Staging
+          EOF
+          git add . || true
+          git commit -m "Initial commit: bootstrap structure" || true
+          git branch -M main || true
         fi
 
     # Update the image tag in the appropriate environment's manifests
