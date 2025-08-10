@@ -115,8 +115,10 @@ jobs:
       uses: docker/login-action@v3
       with:
         registry: ${{ env.DOCKER_REGISTRY }}
-        username: ${{ github.repository_owner }}
+        username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+
+  # Using default GITHUB_TOKEN for GHCR push (no PAT fallback configured)
 
     - name: Generate image tag
       id: image_tag
@@ -134,6 +136,8 @@ jobs:
           ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref == 'refs/heads/main' && 'latest' || 'develop' }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+
+  # If push fails here, likely missing permissions: ensure repository Actions have write & packages enabled.
 
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
@@ -166,30 +170,12 @@ jobs:
           echo "env=staging" >> $GITHUB_OUTPUT
         fi
 
-    - name: Detect PAT availability
-      id: detect_pat
-      shell: bash
-      run: |
-        if [ -n "${{ secrets.PAT_TOKEN }}" ]; then
-          echo "have_pat=true" >> $GITHUB_OUTPUT
-        else
-          echo "have_pat=false" >> $GITHUB_OUTPUT
-        fi
-        echo "PAT present: $(grep have_pat $GITHUB_OUTPUT || true)"
-
-    - name: Abort GitOps update (no PAT_TOKEN secret)
-      if: steps.detect_pat.outputs.have_pat != 'true'
-      run: |
-        echo "Skipping GitOps repo update because PAT_TOKEN secret is not defined."
-        echo "Define PAT_TOKEN with repo & write:packages scopes to enable GitOps manifest updates."
-        exit 0
-
     - name: Checkout config repository
       uses: actions/checkout@v4
       with:
         repository: ${{ github.repository_owner }}/${{ env.CONFIG_REPO }}
-        token: ${{ secrets.PAT_TOKEN }}  # Requires PAT_TOKEN when updating external config repo
-        path: config-repo
+  token: ${{ secrets.GITHUB_TOKEN }}
+  path: config-repo
       continue-on-error: true
         
     # เมื่อ checkout ไม่สำเร็จ (repo อาจไม่มี) ให้สร้าง manifests ที่จำเป็น
