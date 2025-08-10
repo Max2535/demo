@@ -116,7 +116,7 @@ jobs:
       with:
         registry: ${{ env.DOCKER_REGISTRY }}
         username: ${{ github.repository_owner }}
-        password: ${{ github.PAT_TOKEN }}
+        password: ${{ secrets.PAT_TOKEN }}
 
     - name: Generate image tag
       id: image_tag
