@@ -34,6 +34,7 @@ public class CarService {
     }
 
     public Car getCar(Long id) {
-        return carRepository.findById(id).orElse(null);
+        return carRepository.findById(id)
+            .orElseThrow(() -> new com.example.demo.web.error.NotFoundException("Car not found"));
     }
 }
