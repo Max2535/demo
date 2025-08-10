@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read        # allow reading repo contents
+  contents: write       # เพิ่มเป็น write เพื่อให้สามารถ push ไปยัง repository ได้
   packages: write       # needed to push to GHCR
   security-events: write # needed to upload SARIF (code scanning)
 
@@ -116,7 +116,7 @@ jobs:
       with:
         registry: ${{ env.DOCKER_REGISTRY }}
         username: ${{ github.repository_owner }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+        password: ${{ github.PAT_TOKEN }}
 
     - name: Generate image tag
       id: image_tag
