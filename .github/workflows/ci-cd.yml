@@ -273,15 +273,23 @@ jobs:
               echo "Renaming branch $CURRENT_BRANCH -> main"
               git branch -M main || true
             fi
-            echo "Local branches:"; git branch --list
-            echo "Remote refs before push (may fail if no auth):"; git ls-remote --heads origin || true
-            # Push with multiple fallback strategies
-            git push origin main 2>/dev/null || \
-            git push -u origin main 2>/dev/null || \
-            git push origin HEAD:main 2>/dev/null || \
-            { echo "Primary push attempts failed"; exit 1; }
-
-  # Job 4: Notify
+        echo "Local branches:"; git branch --list
+        echo "Remote refs before push (may fail if no auth):"; git ls-remote --heads origin || true
+        
+        # Determine target remote branch (check if master exists remotely)
+        if git ls-remote --heads origin | grep -q "refs/heads/master"; then
+          REMOTE_BRANCH="master"
+          echo "Remote has master branch, pushing to master"
+        else
+          REMOTE_BRANCH="main" 
+          echo "Remote doesn't have master, pushing to main"
+        fi
+        
+        # Push with multiple fallback strategies
+        git push origin main:${REMOTE_BRANCH} 2>/dev/null || \
+        git push -u origin main:${REMOTE_BRANCH} 2>/dev/null || \
+        git push origin HEAD:${REMOTE_BRANCH} 2>/dev/null || \
+        { echo "All push attempts failed"; exit 1; }  # Job 4: Notify
   notify:
     name: Send Notification
     runs-on: ubuntu-latest
