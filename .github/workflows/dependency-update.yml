@@ -18,7 +18,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.PAT_TOKEN}}
 
     - name: Ensure mvnw is executable
       run: chmod +x ./mvnw
@@ -59,7 +59,7 @@ jobs:
       if: steps.changes.outputs.changes == 'true'
       uses: peter-evans/create-pull-request@v5
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.PAT_TOKEN}}
         commit-message: 'chore: update dependencies'
         title: '🔄 Automated Dependency Update'
         body: |
@@ -77,7 +77,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.PAT_TOKEN}}
 
     - name: Install tools
       run: sudo apt-get update && sudo apt-get install -y jq
@@ -85,7 +85,7 @@ jobs:
     - name: Update action versions in workflow files
       id: update
       env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_TOKEN: ${{ secrets.PAT_TOKEN}}
       run: |
         set -e
         WORKFLOW_DIR=".github/workflows"
@@ -135,7 +135,7 @@ jobs:
       if: steps.update.outputs.has_changes == 'true'
       uses: peter-evans/create-pull-request@v5
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.PAT_TOKEN}}
         commit-message: 'chore: update GitHub Actions versions'
         title: '🔄 Update GitHub Actions versions'
         body: |

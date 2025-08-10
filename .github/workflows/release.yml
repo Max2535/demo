@@ -83,7 +83,7 @@ jobs:
       with:
         registry: ${{ env.DOCKER_REGISTRY }}
         username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+        password: ${{ secrets.PAT_TOKEN}}
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
@@ -120,7 +120,7 @@ jobs:
         draft: false
         prerelease: false
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.PAT_TOKEN}}
 
     - name: Deploy to production
       run: |
