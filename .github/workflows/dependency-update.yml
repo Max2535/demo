@@ -5,6 +5,10 @@ on:
     - cron: '0 4 * * 1'  # Every Monday at 4 AM
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   update-dependencies:
     name: Update Dependencies
@@ -60,39 +64,87 @@ jobs:
         title: '🔄 Automated Dependency Update'
         body: |
           ## Automated Dependency Update
-          
           This PR updates Maven dependencies to their latest versions.
-          
-          ### Changes
-          - Updated dependencies to latest versions
-          - All tests are passing
-          
-          Please review the changes and merge if everything looks good.
+          ### Notes
+          - Please review any major version changes manually.
         branch: automated-dependency-update
         delete-branch: true
 
   update-github-actions:
     name: Update GitHub Actions
     runs-on: ubuntu-latest
-    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Update GitHub Actions versions
-      uses: action-updater/action-updater@v2
+    - name: Install tools
+      run: sudo apt-get update && sudo apt-get install -y jq
+
+    - name: Update action versions in workflow files
+      id: update
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -e
+        WORKFLOW_DIR=".github/workflows"
+        ACTION_MAP=$(cat <<'EOF'
+        actions/checkout
+        actions/setup-java
+        actions/cache
+        docker/setup-buildx-action
+        docker/login-action
+        docker/build-push-action
+        aquasecurity/trivy-action
+        github/codeql-action
+        peter-evans/create-pull-request
+        EOF
+        )
+        CHANGED=0
+        for ACTION in $ACTION_MAP; do
+          REPO="$ACTION"
+          # codeql-action/upload-sarif lives in github/codeql-action repo
+          API_URL="https://api.github.com/repos/$REPO/releases/latest"
+          TAG=$(curl -s -H "Authorization: Bearer $GH_TOKEN" "$API_URL" | jq -r .tag_name || true)
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            # fallback to default branch sha not ideal; skip
+            echo "Skip $REPO (no release tag)"
+            continue
+          fi
+          echo "Latest $REPO => $TAG"
+          # Escape slashes for sed
+          ESC_REPO=$(printf '%s' "$REPO" | sed 's|/|\\/|g')
+          # Replace any uses: REPO@<something> with new tag
+          FOUND=$(grep -R "uses: $REPO@" -l $WORKFLOW_DIR || true)
+          if [ -n "$FOUND" ]; then
+            for FILE in $FOUND; do
+              sed -i "s/uses: $ESC_REPO@[^[:space:]]*/uses: $REPO@$TAG/g" "$FILE"
+              CHANGED=1
+              echo "Updated $FILE -> $REPO@$TAG"
+            done
+          fi
+        done
+        if [ $CHANGED -eq 1 ]; then
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+        else
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Create PR for updated action versions
+      if: steps.update.outputs.has_changes == 'true'
+      uses: peter-evans/create-pull-request@v5
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         commit-message: 'chore: update GitHub Actions versions'
-        pr-title: '🔄 Update GitHub Actions versions'
-        pr-body: |
-          ## Automated GitHub Actions Update
-          
-          This PR updates GitHub Actions to their latest versions.
-          
-          ### Changes
-          - Updated action versions in workflow files
-          
-          Please review the changes and merge if everything looks good.
+        title: '🔄 Update GitHub Actions versions'
+        body: |
+          ## Automated GitHub Actions Version Update
+          Updated workflow action versions to their latest release tags.
+          Please verify major upgrades for breaking changes.
+        branch: automated-actions-update
+        delete-branch: true
+
+    - name: No changes
+      if: steps.update.outputs.has_changes == 'false'
+      run: echo "No action version updates needed."

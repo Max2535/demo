@@ -7,6 +7,11 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: read        # allow reading repo contents
+  packages: write       # needed to push to GHCR
+  security-events: write # needed to upload SARIF (code scanning)
+
 env:
   JAVA_VERSION: '17'
   MAVEN_OPTS: '-Xmx1024m'
