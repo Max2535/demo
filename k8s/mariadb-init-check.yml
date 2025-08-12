@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mariadb-init-check
+  labels:
+    app: mariadb
+    app.kubernetes.io/name: mariadb-init
+    app.kubernetes.io/component: database-init
+    app.kubernetes.io/part-of: demo-system
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: mariadb-check
+        image: mariadb:11.3
+        command:
+        - /bin/bash
+        - -c
+        - |
+          echo "Checking MariaDB connection and database setup..."
+          
+          # Wait for MariaDB to be ready
+          for i in {1..30}; do
+            if mysql -h mariadb-service -u caruser -p$MYSQL_PASSWORD -e "SELECT 1" cardb; then
+              echo "MariaDB connection successful"
+              break
+            fi
+            echo "Waiting for MariaDB... ($i/30)"
+            sleep 10
+          done
+          
+          # Verify tables exist
+          echo "Checking if required tables exist..."
+          mysql -h mariadb-service -u caruser -p$MYSQL_PASSWORD cardb -e "SHOW TABLES;"
+          
+          # Check sample data
+          echo "Checking sample data..."
+          mysql -h mariadb-service -u caruser -p$MYSQL_PASSWORD cardb -e "SELECT COUNT(*) as owner_count FROM owners;"
+          mysql -h mariadb-service -u caruser -p$MYSQL_PASSWORD cardb -e "SELECT COUNT(*) as car_count FROM cars;"
+          
+          echo "Database initialization check completed successfully"
+        env:
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mariadb-secrets
+              key: user-password
+  backoffLimit: 3

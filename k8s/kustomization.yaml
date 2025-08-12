@@ -1,0 +1,68 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: demo
+
+resources:
+  - namespaces.yaml
+  - mariadb-pvc-standard.yml
+  - mariadb-configmap.yml
+  - mariadb-secrets.yml
+  - demo-secrets.yml
+  - ghcr-secret.yml
+  - mariadb.yml
+  - mariadb-init-check.yml
+  - deployment.yml
+
+# Ensure proper resource ordering for ArgoCD
+# Namespace and PVC first (wave 0), then secrets and configmaps,
+# then MariaDB (wave 1), then app (wave 2), then checks (wave 3)
+
+images:
+  - name: ghcr.io/max2535/demo
+    newTag: latest
+
+replicas:
+  - name: demo-app
+    count: 3
+  - name: mariadb
+    count: 1
+
+# Common labels for all resources
+commonLabels:
+  app.kubernetes.io/name: demo
+  app.kubernetes.io/version: v1.0.0
+  app.kubernetes.io/component: web-app
+  app.kubernetes.io/part-of: demo-system
+  app.kubernetes.io/managed-by: argocd
+
+# Sync waves for proper resource ordering in ArgoCD
+patchesStrategicMerge:
+  - |-
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: mariadb-secrets
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+  - |-
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: demo-secrets
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+  - |-
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: ghcr-creds
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+  - |-
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: mariadb-init-scripts
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"

@@ -1,4 +1,5 @@
 # MariaDB Database Deployment
+# ArgoCD Compatible Configuration
 
 apiVersion: apps/v1
 kind: Deployment
@@ -6,6 +7,11 @@ metadata:
   name: mariadb
   labels:
     app: mariadb
+    app.kubernetes.io/name: mariadb
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: demo-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   replicas: 1
   selector:
@@ -34,8 +40,29 @@ spec:
             secretKeyRef:
               name: mariadb-secrets
               key: user-password
+        # Add configuration to handle Aria engine properly
+        - name: MYSQL_INITDB_SKIP_TZINFO
+          value: "1"
+        args:
+          - --character-set-server=utf8mb4
+          - --collation-server=utf8mb4_unicode_ci
+          - --skip-character-set-client-handshake
+          - --aria-log-file-size=64M
+          - --aria-log-purge-type=immediate
+          - --aria-max-sort-file-size=2G
+          - --innodb-flush-method=fsync
+          - --innodb-use-native-aio=0
+          - --sync-binlog=0
         ports:
         - containerPort: 3306
+        lifecycle:
+          preStop:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  mysqladmin -u root -p$MYSQL_ROOT_PASSWORD shutdown || true
         volumeMounts:
         - name: mariadb-data
           mountPath: /var/lib/mysql

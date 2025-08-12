@@ -1,5 +1,6 @@
 # Kubernetes Deployment Configuration
-# Last deployed: 2025-08-10T00:00:00Z
+# ArgoCD Compatible Configuration
+# Last deployed: 2025-08-12T00:00:00Z
 
 apiVersion: apps/v1
 kind: Deployment
@@ -8,6 +9,11 @@ metadata:
   labels:
     app: demo-app
     version: v1
+    app.kubernetes.io/name: demo-app
+    app.kubernetes.io/component: web-service
+    app.kubernetes.io/part-of: demo-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   replicas: 3
   selector:
@@ -24,7 +30,21 @@ spec:
       initContainers:
       - name: wait-for-db
         image: busybox:1.28
-        command: ['sh', '-c', 'until nc -z mariadb-service 3306; do echo waiting for mariadb; sleep 2; done;']
+        command: ["sh","-c"]
+        args:
+          - |
+            for i in $(seq 1 120); do
+              nc -z mariadb-service.$NAMESPACE.svc 3306 && exit 0
+              echo "waiting for mariadb..."
+              sleep 2
+            done
+            echo "timeout waiting for mariadb" >&2
+            exit 1
+        env:
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
       containers:
       - name: demo-app
         image: ghcr.io/max2535/demo:latest

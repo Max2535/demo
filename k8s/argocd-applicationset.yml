@@ -1,0 +1,51 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: demo-app-environments
+  namespace: argocd
+spec:
+  generators:
+  - list:
+      elements:
+      - cluster: in-cluster
+        url: https://kubernetes.default.svc
+        namespace: demo
+        environment: production
+        replicas: 3
+        image_tag: latest
+      - cluster: in-cluster
+        url: https://kubernetes.default.svc
+        namespace: demo-staging
+        environment: staging
+        replicas: 1
+        image_tag: develop
+  template:
+    metadata:
+      name: 'demo-app-{{environment}}'
+      labels:
+        environment: '{{environment}}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/Max2535/demo.git
+        targetRevision: main
+        path: k8s
+        kustomize:
+          namePrefix: '{{environment}}-'
+          namespace: '{{namespace}}'
+          images:
+          - ghcr.io/max2535/demo:{{image_tag}}
+          replicas:
+          - name: demo-app
+            count: '{{replicas}}'
+      destination:
+        server: '{{url}}'
+        namespace: '{{namespace}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+        - CreateNamespace=true
+        - PrunePropagationPolicy=foreground
+      revisionHistoryLimit: 5

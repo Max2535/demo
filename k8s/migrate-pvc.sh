@@ -1,8 +1,42 @@
 #!/bin/bash
 # This script helps you migrate data from an old PVC to a new one
 
+# Exit immediately if a command exits with a non-zero status
+set -e
+
 # Set namespace
 NAMESPACE=demo
+
+# Create namespace if it doesn't exist
+echo "Creating namespace '$NAMESPACE' if it doesn't exist..."
+kubectl create namespace $NAMESPACE || echo "Namespace '$NAMESPACE' already exists"
+
+# Ensure the ghcr-creds secret exists
+if ! kubectl get secret ghcr-creds -n $NAMESPACE &> /dev/null; then
+  echo "Creating ghcr-creds secret..."
+  
+  # Check if GITHUB_TOKEN environment variable is set
+  if [ -z "$GITHUB_TOKEN" ]; then
+    echo "GITHUB_TOKEN environment variable is not set. Please set it first:"
+    echo "export GITHUB_TOKEN=your_github_token"
+    exit 1
+  fi
+  
+  # Create secret for GitHub Container Registry
+  kubectl create secret docker-registry ghcr-creds \
+    -n $NAMESPACE \
+    --docker-server=ghcr.io \
+    --docker-username=$GITHUB_USERNAME \
+    --docker-password=$GITHUB_TOKEN \
+    --docker-email=$GITHUB_EMAIL
+    
+  if [ $? -ne 0 ]; then
+    echo "Failed to create ghcr-creds secret. Please check your credentials."
+    echo "You can manually create it with:"
+    echo "kubectl create secret docker-registry ghcr-creds -n $NAMESPACE --docker-server=ghcr.io --docker-username=<username> --docker-password=<token> --docker-email=<email>"
+    exit 1
+  fi
+fi
 
 # Create the new PVC
 kubectl apply -f mariadb-pvc-standard.yml -n $NAMESPACE
