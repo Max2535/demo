@@ -31,3 +31,16 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Kubernetes Tools ###
+# ArgoCD CLI binaries
+k8s/argocd-*
+k8s/kubectl-*
+k8s/*.exe
+k8s/*.bin
+
+### Production Credentials ###
+k8s/.production-credentials
+*.pem
+*.key
+*.crt
