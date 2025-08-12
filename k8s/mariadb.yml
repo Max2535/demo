@@ -73,7 +73,7 @@ spec:
       volumes:
       - name: mariadb-data
         persistentVolumeClaim:
-          claimName: mariadb-pvc
+          claimName: mariadb-pvc-standard
       - name: init-scripts
         configMap:
           name: mariadb-init-scripts
@@ -94,18 +94,20 @@ spec:
     targetPort: 3306
   type: ClusterIP
 
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: mariadb-pvc
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
-  storageClassName: standard
+# PVC has been moved to a separate file (mariadb-pvc-standard.yml)
+# This allows for easier replacement when storage requirements change
+# ---
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: mariadb-pvc
+# spec:
+#   accessModes:
+#     - ReadWriteOnce
+#   resources:
+#     requests:
+#       storage: 10Gi
+#   storageClassName: standard
 
 ---
 apiVersion: v1
