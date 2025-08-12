@@ -19,6 +19,12 @@ spec:
         app: demo-app
         version: v1
     spec:
+      imagePullSecrets:
+        - name: ghcr-creds
+      initContainers:
+      - name: wait-for-db
+        image: busybox:1.28
+        command: ['sh', '-c', 'until nc -z mariadb-service 3306; do echo waiting for mariadb; sleep 2; done;']
       containers:
       - name: demo-app
         image: ghcr.io/max2535/demo:latest
@@ -56,22 +62,20 @@ spec:
             cpu: "500m"
         livenessProbe:
           httpGet:
-            path: /actuator/health/liveness
+            path: /actuator/health
             port: 8080
-          initialDelaySeconds: 60
+          initialDelaySeconds: 90
           periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /actuator/health/readiness
+            path: /actuator/health
             port: 8080
           initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
-      imagePullSecrets:
-      - name: ghcr-secret
 
 ---
 apiVersion: v1
@@ -102,10 +106,10 @@ metadata:
 spec:
   tls:
   - hosts:
-    - your-domain.com
+    - demo.example.com
     secretName: demo-app-tls
   rules:
-  - host: your-domain.com
+  - host: demo.example.com
     http:
       paths:
       - path: /
@@ -132,7 +136,7 @@ stringData:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: ghcr-secret
+  name: ghcr-creds
 type: kubernetes.io/dockerconfigjson
 data:
-  .dockerconfigjson: ewogICJhdXRocyI6IHsKICAgICJnaGNyLmlvIjogewogICAgICAidXNlcm5hbWUiOiAieW91ci1naXRodWItdXNlcm5hbWUiLAogICAgICAicGFzc3dvcmQiOiAieW91ci1naXRodWItdG9rZW4iCiAgICB9CiAgfQp9
+  .dockerconfigjson: ewoJImF1dGhzIjogewoJCSJnaGNyLmlvIjogewoJCQkiYXV0aCI6ICJUVmhZTWpVek5UcG5hRE5vWDJoMFltZGZkRzlyWlc0PSIKCQl9Cgl9Cn0=

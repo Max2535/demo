@@ -43,11 +43,11 @@ spec:
           mountPath: /docker-entrypoint-initdb.d
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "250m"
+            memory: "128Mi"
+            cpu: "100m"
           limits:
-            memory: "1Gi"
-            cpu: "500m"
+            memory: "512Mi"
+            cpu: "300m"
         livenessProbe:
           exec:
             command:
@@ -105,7 +105,7 @@ spec:
   resources:
     requests:
       storage: 10Gi
-  storageClassName: fast-ssd
+  storageClassName: standard
 
 ---
 apiVersion: v1
@@ -124,6 +124,29 @@ metadata:
   name: mariadb-init-scripts
 data:
   init.sql: |
+    -- Create tables
+    CREATE TABLE IF NOT EXISTS owners (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      first_name VARCHAR(100) NOT NULL,
+      last_name VARCHAR(100) NOT NULL
+    );
+    
+    CREATE TABLE IF NOT EXISTS cars (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      brand VARCHAR(100) NOT NULL,
+      model VARCHAR(100) NOT NULL,
+      year INT NOT NULL,
+      owner_id INT,
+      FOREIGN KEY (owner_id) REFERENCES owners(id)
+    );
+    
+    CREATE TABLE IF NOT EXISTS users (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      username VARCHAR(50) NOT NULL UNIQUE,
+      password VARCHAR(100) NOT NULL,
+      roles VARCHAR(100) NOT NULL
+    );
+
     -- Initial data for the application
     INSERT INTO owners (first_name, last_name) VALUES 
     ('John', 'Doe'),
