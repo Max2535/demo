@@ -55,6 +55,33 @@ echo -e "${GREEN}✓ Prerequisites check passed${NC}"
 echo ""
 
 # Check if production setup was run
+echo -e "${BLUE}🔍 Checking Kubernetes cluster access...${NC}"
+
+if kubectl cluster-info >/dev/null 2>&1; then
+    echo -e "${GREEN}✓ Kubernetes cluster is accessible${NC}"
+    CLUSTER_CONTEXT=$(kubectl config current-context)
+    echo -e "${YELLOW}📍 Current context: ${CLUSTER_CONTEXT}${NC}"
+else
+    echo -e "${RED}✗ Cannot access Kubernetes cluster${NC}"
+    echo ""
+    echo -e "${YELLOW}🔧 Running kubectl connection troubleshooter...${NC}"
+    if [ -f "fix-kubectl-connection.sh" ]; then
+        chmod +x fix-kubectl-connection.sh
+        ./fix-kubectl-connection.sh
+        
+        # Re-test after running fix script
+        if kubectl cluster-info >/dev/null 2>&1; then
+            echo -e "${GREEN}✓ Connection fixed! Continuing with deployment...${NC}"
+        else
+            echo -e "${RED}✗ Could not fix connection. Please resolve manually.${NC}"
+            exit 1
+        fi
+    else
+        echo "Please ensure kubectl is configured correctly"
+        exit 1
+    fi
+fi
+
 echo -e "${BLUE}🔍 Checking production setup...${NC}"
 
 if [ ! -f ".production-credentials" ]; then

@@ -61,11 +61,13 @@ show_main_menu() {
     echo "4. 🔐 Manage Secrets (Run manage-secrets.sh)"
     echo "5. ✅ Validate Configuration (Run validate-argocd-config.sh)"
     echo "6. 🔧 Fix MariaDB Issues (Run fix-mariadb-aria.sh)"
+    echo "7. 🔗 Fix Kubectl Connection (Run fix-kubectl-connection.sh)"
+    echo "8. 🏠 Setup Local Cluster (Run setup-local-cluster.sh)"
     echo ""
     echo -e "${BLUE}Information:${NC}"
-    echo "7. 📊 Show Current Status"
-    echo "8. 📚 Show Documentation"
-    echo "9. 🆘 Help & Troubleshooting"
+    echo "9. 📊 Show Current Status"
+    echo "10. 📚 Show Documentation"
+    echo "11. 🆘 Help & Troubleshooting"
     echo ""
     echo -e "${BLUE}Exit:${NC}"
     echo "0. 👋 Exit"
@@ -249,6 +251,8 @@ main() {
         "manage-secrets.sh"
         "validate-argocd-config.sh"
         "fix-mariadb-aria.sh"
+        "fix-kubectl-connection.sh"
+        "setup-local-cluster.sh"
     )
     
     missing_scripts=0
@@ -269,7 +273,7 @@ main() {
     # Main menu loop
     while true; do
         show_main_menu
-        read -p "Select an option (0-9): " choice
+        read -p "Select an option (0-11): " choice
         echo ""
         
         case $choice in
@@ -297,12 +301,20 @@ main() {
                 ./fix-mariadb-aria.sh
                 ;;
             7)
-                show_current_status
+                echo -e "${BLUE}🔗 Fixing Kubectl Connection...${NC}"
+                ./fix-kubectl-connection.sh
                 ;;
             8)
-                show_documentation
+                echo -e "${BLUE}🏠 Setting up Local Cluster...${NC}"
+                ./setup-local-cluster.sh
                 ;;
             9)
+                show_current_status
+                ;;
+            10)
+                show_documentation
+                ;;
+            11)
                 show_help
                 ;;
             0)

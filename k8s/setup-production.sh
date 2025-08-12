@@ -65,8 +65,24 @@ if kubectl cluster-info >/dev/null 2>&1; then
     echo -e "${YELLOW}📍 Current context: ${CLUSTER_CONTEXT}${NC}"
 else
     echo -e "${RED}✗ Cannot access Kubernetes cluster. Please check your kubeconfig.${NC}"
-    echo "Run: kubectl config get-contexts"
-    exit 1
+    echo ""
+    echo -e "${YELLOW}🔧 Running kubectl connection troubleshooter...${NC}"
+    if [ -f "fix-kubectl-connection.sh" ]; then
+        chmod +x fix-kubectl-connection.sh
+        ./fix-kubectl-connection.sh
+        
+        # Re-test after running fix script
+        if kubectl cluster-info >/dev/null 2>&1; then
+            echo -e "${GREEN}✓ Connection fixed! Continuing with setup...${NC}"
+        else
+            echo -e "${RED}✗ Could not fix connection. Please resolve manually.${NC}"
+            exit 1
+        fi
+    else
+        echo "Run: kubectl config get-contexts"
+        echo "Then: kubectl config use-context <context-name>"
+        exit 1
+    fi
 fi
 echo ""
 
