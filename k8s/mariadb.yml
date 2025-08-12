@@ -62,7 +62,7 @@ spec:
                 - /bin/bash
                 - -c
                 - |
-                  mysqladmin -u root -p$MYSQL_ROOT_PASSWORD shutdown || true
+                  mariadb-admin -u root -p$MYSQL_ROOT_PASSWORD shutdown || true
         volumeMounts:
         - name: mariadb-data
           mountPath: /var/lib/mysql
@@ -78,7 +78,7 @@ spec:
         livenessProbe:
           exec:
             command:
-            - mysqladmin
+            - mariadb-admin
             - ping
             - -h
             - localhost
@@ -89,7 +89,7 @@ spec:
         readinessProbe:
           exec:
             command:
-            - mysqladmin
+            - mariadb-admin
             - ping
             - -h
             - localhost
